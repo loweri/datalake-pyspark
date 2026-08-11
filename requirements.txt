@@ -1,0 +1,8 @@
+pyspark
+delta-spark
+yfinance
+pandas
+jupyter
+apache-airflow==3.3.0
+pytest
+python-dotenv
