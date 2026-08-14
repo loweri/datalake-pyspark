@@ -9,12 +9,6 @@ PROJECT_DIR = "/home/ericl/projetos/datalake-pyspark"
 if PROJECT_DIR not in sys.path:
     sys.path.insert(0, PROJECT_DIR)
 
-from src.bronze import ingest_bronze
-from src.silver import transform_silver
-from src.gold import load_gold
-from pyspark.sql import SparkSession
-from delta import configure_spark_with_delta_pip
-
 # Configurações Globais dos Caminhos do Data Lake
 PATH_BRONZE    = os.path.join(PROJECT_DIR, "storage", "bronze")
 PATH_SILVER    = os.path.join(PROJECT_DIR, "storage", "silver")
@@ -27,7 +21,10 @@ TICKERS = [
 
 
 def get_spark_session():
-    """Cria a SparkSession configurada para execução no Airflow."""
+    """Cria a SparkSession com suporte ao Delta Lake (Lazy Import)."""
+    from pyspark.sql import SparkSession
+    from delta import configure_spark_with_delta_pip
+
     builder = SparkSession.builder \
         .appName("AirflowFinancialDataLake") \
         .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension") \
@@ -38,6 +35,11 @@ def get_spark_session():
 
 
 def task_ingest_bronze():
+    """Task 1: Ingestão de dados brutos e escrita em Delta Table Bronze."""
+    if PROJECT_DIR not in sys.path:
+        sys.path.insert(0, PROJECT_DIR)
+    from src.bronze import ingest_bronze
+
     spark = get_spark_session()
     try:
         total = ingest_bronze(spark, TICKERS, PATH_BRONZE)
@@ -47,6 +49,11 @@ def task_ingest_bronze():
 
 
 def task_transform_silver():
+    """Task 2: Limpeza, deduplicação e cálculo de indicadores na Silver."""
+    if PROJECT_DIR not in sys.path:
+        sys.path.insert(0, PROJECT_DIR)
+    from src.silver import transform_silver
+
     spark = get_spark_session()
     try:
         total = transform_silver(spark, PATH_BRONZE, PATH_SILVER)
@@ -56,6 +63,11 @@ def task_transform_silver():
 
 
 def task_load_gold():
+    """Task 3: Carga analítica e agregação de Tabela Fato na Gold."""
+    if PROJECT_DIR not in sys.path:
+        sys.path.insert(0, PROJECT_DIR)
+    from src.gold import load_gold
+
     spark = get_spark_session()
     try:
         total = load_gold(spark, PATH_SILVER, PATH_GOLD_FACT)

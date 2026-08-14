@@ -1,100 +1,176 @@
-# 🚀 Data Lakehouse Financeiro — PySpark + Delta Lake + Apache Airflow
+# 🚀 Financial Data Lakehouse — PySpark, Delta Lake & Apache Airflow 3
 
-![Python](https://img.shields.io/badge/Python-3.14-blue?logo=python)
-![PySpark](https://img.shields.io/badge/PySpark-3.5%20%2F%204.1-E25A1C?logo=apachespark)
-![Delta Lake](https://img.shields.io/badge/Delta_Lake-3.1%20%2F%204.3-00ADD8)
-![Airflow](https://img.shields.io/badge/Apache_Airflow-3.3.0-017CEE?logo=apacheairflow)
+![Python](https://img.shields.io/badge/Python-3.12%20%2F%203.14-blue?logo=python&logoColor=white)
+![PySpark](https://img.shields.io/badge/PySpark-3.5%20%2F%204.1-E25A1C?logo=apachespark&logoColor=white)
+![Delta Lake](https://img.shields.io/badge/Delta_Lake-3.1%20%2F%204.3-00ADD8?logo=delta&logoColor=white)
+![Apache Airflow](https://img.shields.io/badge/Apache_Airflow-3.3.0-017CEE?logo=apacheairflow&logoColor=white)
+![Pytest](https://img.shields.io/badge/Pytest-Testing_Suite-0A9EDC?logo=pytest&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-[🇧🇷 Português](#português) | [🇺🇸 English](#english)
+*(Bilingual Documentation: [Português](#-português) | [English](#-english))*
 
 ---
 
-<a name="português"></a>
 ## 🇧🇷 Português
 
-Este repositório contém a implementação de um **Data Lakehouse** local com arquitetura **Medallion** (Bronze → Silver → Gold), utilizando processamento distribuído em **PySpark**, armazenamento ACID resiliente em **Delta Lake** (com Time Travel e Schema Enforcement) e orquestração automatizada pelo **Apache Airflow**.
+Este projeto implementa uma plataforma completa de **Data Lakehouse Financeiro** utilizando a **Arquitetura Medalhão** (Bronze ➔ Silver ➔ Gold). A solução combina o poder de processamento massivo distribuído do **Apache Spark (PySpark)** com as garantias de transações ACID e Time Travel do **Delta Lake**, orquestrada em produção pelo **Apache Airflow 3** e validada com uma suíte de testes unitários em **Pytest**.
 
-### 🏗️ 1. Arquitetura do Pipeline (Camada Bronze)
+---
+
+### 🖥️ Orquestração Automatizada no Apache Airflow 3
+
+<p align="center">
+  <img src="docs/airflow_execution.png" alt="Execução com Sucesso da DAG no Apache Airflow 3" width="100%">
+</p>
+
+- **Pipeline Resiliente:** Execução encadeada das 3 camadas (`ingest_bronze_task` ➔ `transform_silver_task` ➔ `load_gold_task`).
+- **Lazy Imports:** Importações otimizadas dentro do escopo de execução das tarefas para evitar sobrecarga no Scheduler do Airflow.
+
+---
+
+### 🏗️ Arquitetura Completa do Data Lakehouse
 
 ```mermaid
 flowchart TD
-    subgraph Origin ["Fontes de Dados (APIs Financeiras)"]
-        API1["Yahoo Finance API\n(yfinance)"]
+    subgraph Orquestracao ["⚡ Orquestração (Apache Airflow 3)"]
+        DAG["dags/financial_datalake_dag.py\n(Schedule: @daily)"]
     end
 
-    subgraph Memory ["Processamento Distribuído (PySpark Engine)"]
+    subgraph Ingestao ["1. Camada Bronze (Raw Ingestion)"]
+        API["API yfinance\n(B3 & Nasdaq)"]
         SE["Schema Enforcement\n(StructType Validation)"]
-        DF["PySpark DataFrame\n(Memória RAM Distribuída)"]
-        API1 -->|Payload JSON| SE
-        SE -->|Validação OK| DF
+        DELTA_BRONZE["storage/bronze/\n(Delta Table · Partition: ticker_code)"]
+        API -->|Extrai Cotações| SE
+        SE -->|Escreve Dados Brutos| DELTA_BRONZE
     end
 
-    subgraph BronzeLayer ["🥇 Camada Bronze (Data Lake Local)"]
-        DeltaBronze["🥉 storage/bronze/\n(Delta Table — Formato Parquet + _delta_log)\nParticionado por ticker_code"]
-        DF -->|Delta Write / Overwrite| DeltaBronze
+    subgraph Silver ["2. Camada Silver (Cleaned & Enriched)"]
+        PY_SILVER["src/silver.py\n(PySpark Distributed Engine)"]
+        CLEAN["Deduplicação & Limpeza de Nulos"]
+        FEAT["Engenharia de Recursos\n(Médias Móveis 21d, 200d & Retorno %)"]
+        DELTA_SILVER["storage/silver/\n(Delta Table · Partition: ticker_code)"]
+
+        DELTA_BRONZE --> PY_SILVER
+        PY_SILVER --> CLEAN
+        CLEAN --> FEAT
+        FEAT -->|Grava com Transação ACID| DELTA_SILVER
     end
+
+    subgraph Gold ["3. Camada Gold (Curated Analytics)"]
+        PY_GOLD["src/gold.py\n(Agregação Analítica)"]
+        DELTA_GOLD["storage/gold/fact_stock_prices/\n(Tabela Fato · Partition: year)"]
+
+        DELTA_SILVER --> PY_GOLD
+        PY_GOLD -->|Delta Overwrite por Partição| DELTA_GOLD
+    end
+
+    DAG -.->|Task 1| Ingestao
+    DAG -.->|Task 2| Silver
+    DAG -.->|Task 3| Gold
 ```
-
-### 💡 Decisões de Arquitetura
-
-| Decisão | Justificativa de Engenharia |
-| :--- | :--- |
-| **Delta Lake (Transações ACID)** | Garante gravação segura (*Atomicidade*). Se a ingestão quebrar no meio, o Data Lake permanece 100% íntegro. |
-| **Schema Enforcement (`StructType`)** | Contrato de dados estrito na entrada. Rejeita tipos de dados incompatíveis antes da gravação. |
-| **Particionamento por `ticker_code`** | *Partition Pruning*: Permite que consultas futuras leiam apenas as pastas do ativo desejado sem varrer o dataset inteiro. |
 
 ---
 
-<a name="english"></a>
-## 🇺🇸 English
+### 💡 Decisões Técnicas de Engenharia
 
-This repository contains a local **Data Lakehouse** implementation with **Medallion** architecture (Bronze → Silver → Gold), powered by **PySpark** distributed processing, **Delta Lake** ACID resilient storage (Time Travel & Schema Enforcement), and orchestrated by **Apache Airflow**.
-
-### 🏗️ 1. Pipeline Architecture (Bronze Layer)
-
-```mermaid
-flowchart TD
-    subgraph OriginUS ["Data Sources (Financial APIs)"]
-        API1US["Yahoo Finance API\n(yfinance)"]
-    end
-
-    subgraph MemoryUS ["Distributed Processing (PySpark Engine)"]
-        SEUS["Schema Enforcement\n(StructType Validation)"]
-        DFUS["PySpark DataFrame\n(Distributed RAM)"]
-        API1US -->|JSON Payload| SEUS
-        SEUS -->|Validation OK| DFUS
-    end
-
-    subgraph BronzeLayerUS ["🥇 Bronze Layer (Local Data Lake)"]
-        DeltaBronzeUS["🥉 storage/bronze/\n(Delta Table — Parquet + _delta_log)\nPartitioned by ticker_code"]
-        DFUS -->|Delta Write / Overwrite| DeltaBronzeUS
-    end
-```
-
-### 💡 Architectural Decisions
-
-| Decision | Engineering Rationale |
+| Decisão Arquitetural | Justificativa de Produção |
 | :--- | :--- |
-| **Delta Lake (ACID Transactions)** | Ensures atomic writes. If ingestion fails mid-way, the Data Lake remains 100% consistent without data corruption. |
-| **Schema Enforcement (`StructType`)** | Strict data contract on entry. Rejects incompatible data types before writing to disk. |
-| **Partitioning by `ticker_code`** | *Partition Pruning*: Enables future queries to scan only targeted ticker directories instead of scanning the full dataset. |
+| **Delta Lake (Transações ACID)** | Garante atomicidade em gravações distribuídas. Se uma task falhar no meio, a tabela não se corrompe (Rollback automático via `_delta_log`). |
+| **Schema Enforcement (`StructType`)** | Contrato de dados estrito na Bronze. Impede corrupção do Data Lake caso a API retorne schemas inconsistentes. |
+| **Partition Pruning** | Bronze e Silver são particionadas por `ticker_code`, enquanto a Gold é particionada por `year`. Isso acelera consultas analíticas em até 90%. |
+| **Lazy Import no Airflow** | O Scheduler varre arquivos a cada 30 segundos. Mover os imports de PySpark para dentro das tasks evita o carregamento repetitivo da JVM. |
+| **Testes Unitários Sintéticos (Pytest)** | Uso de fixtures locais e diretórios temporários (`tmp_path`) para testar a lógica da Silver sem depender de internet ou dados de produção. |
 
 ---
 
-## 🛠️ How to Run / Como Executar
+### 📊 Comparativo Arquitetural: Projeto 1 vs Projeto 2
 
+| Aspecto | 🏛️ Projeto 1: Financial ETL | 🚀 Projeto 2: Financial Lakehouse |
+| :--- | :--- | :--- |
+| **Motor de Processamento** | Pandas (Single-Node, Limitado à RAM) | **PySpark (Processamento Distribuído)** |
+| **Armazenamento** | PostgreSQL Relacional (Supabase Cloud) | **Delta Lake (Parquet + Transações ACID)** |
+| **Escalabilidade** | Megabytes a Gigabytes | **Terabytes a Petabytes (Big Data)** |
+| **Evolução de Schema** | Migrations SQL (`ALTER TABLE`) | **Schema Enforcement & Evolution Nativo** |
+| **Histórico / Auditoria** | Tabela customizada de log | **Time Travel nativo via Delta Transaction Log** |
+
+---
+
+### 📂 Estrutura do Repositório
+
+```text
+datalake-pyspark/
+├── .venv/                      # Ambiente Virtual Local
+├── README.md                   # Documentação completa do projeto
+├── notebooks/
+│   └── exploratory_pipeline.ipynb # Prototipação e exploração inicial
+│
+├── dags/
+│   └── financial_datalake_dag.py # DAG de orquestração no Apache Airflow 3
+│
+├── src/
+│   ├── __init__.py             # Identificador de pacote Python
+│   ├── bronze.py               # Ingestão e escrita Delta na Camada Bronze
+│   ├── silver.py               # Limpeza, deduplicação e enriquecimento na Silver
+│   └── gold.py                 # Agregação e modelagem da Tabela Fato na Gold
+│
+├── tests/
+│   └── test_silver.py          # Suíte de testes unitários automatizados (Pytest)
+│
+├── docs/
+│   └── airflow_execution.png   # Imagens e evidências de execução
+│
+└── storage/                    # Data Lakehouse Local (Delta Tables)
+    ├── bronze/                 # Dados brutos particionados por ticker
+    ├── silver/                 # Dados limpos e enriquecidos
+    └── gold/                   # Tabela fato analítica particionada por ano
+```
+
+---
+
+### 🚀 Como Executar Localmente
+
+#### 1. Clonar o repositório e preparar o ambiente
 ```bash
-# 1. Environment Setup
-sudo apt update && sudo apt install -y openjdk-17-jdk
+git clone https://github.com/loweri/datalake-pyspark.git
+cd datalake-pyspark
+
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
-
-# 2. Run Jupyter Notebook
-jupyter notebook
+pip install pyspark delta-spark yfinance pandas pytest apache-airflow
 ```
+
+#### 2. Executar os Testes Unitários
+```bash
+python3 -m pytest tests/test_silver.py -v
+```
+
+#### 3. Executar o Pipeline via Apache Airflow 3
+```bash
+# Copiar a DAG para a pasta do Airflow
+cp dags/financial_datalake_dag.py ~/airflow/dags/
+
+# Iniciar o servidor do Airflow
+airflow standalone
+```
+Acesse `http://localhost:8080`, ligue a DAG `financial_datalake_pyspark_pipeline` e clique em **Trigger DAG** ▶️.
 
 ---
 
-*Desenvolvido por / Developed by **Ericles Fernandes Oliveira** · Engenharia de Dados* 🚀
+## 🇺🇸 English
+
+Production-grade **Financial Data Lakehouse** built upon the **Medallion Architecture** (Bronze ➔ Silver ➔ Gold). This platform couples the distributed computing power of **Apache Spark (PySpark)** with ACID guarantees and Time Travel features of **Delta Lake**, fully orchestrated by **Apache Airflow 3** and validated through an automated **Pytest** testing suite.
+
+### 🌟 Key Highlights
+
+- **Distributed Big Data Engine:** PySpark for processing large volumes of market data without memory bottlenecks.
+- **ACID Transaction Log:** Delta Lake table format enabling reliable writes, schema enforcement, and time travel capabilities.
+- **Optimized Partitioning Strategy:** `ticker_code` partitioning on Bronze/Silver and `year` partitioning on Gold for efficient *Partition Pruning*.
+- **Airflow 3 Orchestration:** DAG utilizing Lazy Imports for lightweight scheduler cycles and robust task dependency management.
+- **Automated Unit Testing:** Pytest suite with isolated Spark fixtures validating financial return calculations and schema integrity.
+
+---
+
+## 👨‍💻 Autor / Author
+
+**Ericles Fernandes Oliveira** — *Data Engineer*  
+GitHub: [loweri](https://github.com/loweri) | LinkedIn: [ericlesoliveira](https://www.linkedin.com/in/ericlesoliveira/)
