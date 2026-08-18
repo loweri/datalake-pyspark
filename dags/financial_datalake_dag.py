@@ -1,11 +1,40 @@
+"""
+financial_datalake_dag.py — Orquestração de Pipeline Data Lakehouse no Airflow 3
+================================================================================
+DAG responsável por agendar, orquestrar e monitorar a esteira
+Medalhão (Bronze -> Silver -> Gold) com PySpark e Delta Lake.
+
+Padrões de Produção:
+  - Lazy Imports para isolamento de dependências e otimização do Scheduler.
+  - Resolução dinâmica de PROJECT_DIR via pathlib e variáveis de ambiente.
+  - Injeção de JAVA_HOME e PYSPARK_PYTHON nos workers do Airflow.
+  - Idempotência em todas as tarefas via Delta Lake Overwrite particionado.
+"""
+
 from datetime import datetime, timedelta
 import os
 import sys
+from pathlib import Path
+
 from airflow import DAG
 from airflow.providers.standard.operators.python import PythonOperator
 
-# Caminho absoluto do projeto Data Lakehouse
-PROJECT_DIR = "/home/ericl/projetos/datalake-pyspark"
+
+def _resolve_project_dir() -> str:
+    """Resolve o PROJECT_DIR usando múltiplas estratégias de fallback."""
+    env_dir = os.environ.get("DATALAKE_PROJECT_DIR", "")
+    if env_dir and Path(env_dir, "src").is_dir():
+        return env_dir
+
+    candidate = str(Path(__file__).resolve().parent.parent)
+    if Path(candidate, "src").is_dir():
+        return candidate
+
+    return str(Path.cwd())
+
+
+# Caminho do projeto Data Lakehouse resolvido dinamicamente
+PROJECT_DIR = _resolve_project_dir()
 if PROJECT_DIR not in sys.path:
     sys.path.insert(0, PROJECT_DIR)
 
@@ -20,13 +49,35 @@ TICKERS = [
 ]
 
 
-def get_spark_session():
-    """Cria a SparkSession com suporte ao Delta Lake (Lazy Import)."""
+def _resolve_java_home() -> str:
+    """Detecta automaticamente o JAVA_HOME do sistema."""
+    java_home = os.environ.get("JAVA_HOME", "")
+    if java_home and Path(java_home, "bin", "java").exists():
+        return java_home
+
+    fallback = Path.home() / ".jdk17"
+    if (fallback / "bin" / "java").exists():
+        return str(fallback)
+
+    return ""
+
+
+def get_spark_session(app_name: str = "AirflowFinancialDataLake"):
+    """Cria a SparkSession com suporte ao Delta Lake e injeção de JVM (Lazy Import)."""
     from pyspark.sql import SparkSession
     from delta import configure_spark_with_delta_pip
 
+    java_home = _resolve_java_home()
+    if java_home:
+        os.environ["JAVA_HOME"] = java_home
+        os.environ["PATH"] = os.path.join(java_home, "bin") + os.pathsep + os.environ.get("PATH", "")
+
+    venv_python = Path(PROJECT_DIR) / ".venv" / "bin" / "python3"
+    if venv_python.exists():
+        os.environ.setdefault("PYSPARK_PYTHON", str(venv_python))
+
     builder = SparkSession.builder \
-        .appName("AirflowFinancialDataLake") \
+        .appName(app_name) \
         .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension") \
         .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
         .config("spark.sql.shuffle.partitions", "2") \
@@ -40,10 +91,11 @@ def task_ingest_bronze():
         sys.path.insert(0, PROJECT_DIR)
     from src.bronze import ingest_bronze
 
-    spark = get_spark_session()
+    spark = get_spark_session("Airflow_Market_Bronze")
     try:
         total = ingest_bronze(spark, TICKERS, PATH_BRONZE)
         print(f"✅ Ingestão Bronze concluída via Airflow: {total} registros.")
+        return total
     finally:
         spark.stop()
 
@@ -54,10 +106,11 @@ def task_transform_silver():
         sys.path.insert(0, PROJECT_DIR)
     from src.silver import transform_silver
 
-    spark = get_spark_session()
+    spark = get_spark_session("Airflow_Market_Silver")
     try:
         total = transform_silver(spark, PATH_BRONZE, PATH_SILVER)
         print(f"✨ Transformação Silver concluída via Airflow: {total} registros.")
+        return total
     finally:
         spark.stop()
 
@@ -68,16 +121,17 @@ def task_load_gold():
         sys.path.insert(0, PROJECT_DIR)
     from src.gold import load_gold
 
-    spark = get_spark_session()
+    spark = get_spark_session("Airflow_Market_Gold")
     try:
         total = load_gold(spark, PATH_SILVER, PATH_GOLD_FACT)
         print(f"🎉 Carga Gold concluída via Airflow: {total} registros na Tabela Fato.")
+        return total
     finally:
         spark.stop()
 
 
 default_args = {
-    "owner": "Ericles Fernandes Oliveira",
+    "owner": "data-engineering",
     "depends_on_past": False,
     "email_on_failure": False,
     "retries": 1,
@@ -91,7 +145,7 @@ with DAG(
     schedule="@daily",
     start_date=datetime(2025, 1, 1),
     catchup=False,
-    tags=["pyspark", "delta-lake", "datalakehouse", "b3", "nasdaq"],
+    tags=["pyspark", "delta-lake", "datalakehouse", "b3", "nasdaq", "medallion"],
 ) as dag:
 
     t1 = PythonOperator(

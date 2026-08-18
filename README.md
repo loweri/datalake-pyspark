@@ -11,6 +11,22 @@
 
 ---
 
+## 🏗️ Architecture Blueprint / Diagrama de Arquitetura
+
+<p align="center">
+  <img src="docs/architecture_blueprint.png" alt="Distributed Financial Lakehouse Architecture Blueprint" width="100%">
+</p>
+
+---
+
+## 📋 Pré-Requisitos / Prerequisites
+
+- **Java 17 (OpenJDK)** — Obrigatório para o funcionamento da JVM do Apache Spark
+- **Python >= 3.12**
+- **Apache Airflow 3.x** (Opcional para orquestração automatizada)
+
+---
+
 ## 🇧🇷 Português
 
 Este projeto implementa uma plataforma completa de **Data Lakehouse Financeiro** utilizando a **Arquitetura Medalhão** (Bronze ➔ Silver ➔ Gold). A solução combina o poder de processamento massivo distribuído do **Apache Spark (PySpark)** com as garantias de transações ACID e Time Travel do **Delta Lake**, orquestrada em produção pelo **Apache Airflow 3** e validada com uma suíte de testes unitários em **Pytest**.
